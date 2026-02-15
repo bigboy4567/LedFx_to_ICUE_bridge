@@ -5,7 +5,7 @@ Petit bridge Windows qui recoit des paquets UDP de LedFx et envoie les couleurs 
 ## Pre-requis
 - Windows + iCUE installe
 - SDK iCUE active dans les options iCUE (Settings > Software and Games > Enable SDK)
-- Python 3.9+ installe
+- Python 3.10 installe
 
 ## Installation
 1. Installer les dependances
