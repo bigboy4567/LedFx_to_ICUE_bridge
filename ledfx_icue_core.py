@@ -14,7 +14,7 @@ import urllib.request
 import urllib.error
 import webbrowser
 import i18n
-import csv
+
 try:
     import msvcrt
     _HAS_MSVCRT = True
