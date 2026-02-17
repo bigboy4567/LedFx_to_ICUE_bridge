@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
 import logging
+import os
 import socket
 import selectors
+import sys
 import time
 try:
     import msvcrt
@@ -10,6 +12,12 @@ try:
 except Exception:
     msvcrt = None
     _HAS_MSVCRT = False
+try:
+    import psutil
+    _HAS_PSUTIL = True
+except ImportError:
+    psutil = None
+    _HAS_PSUTIL = False
 
 def load_config(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -2480,6 +2488,64 @@ def run_bridge(args):
         )
         return 1
     logger = setup_logging(cfg)
+    process_priority = str(cfg.get("process_priority", "high")).lower()
+    try:
+        if process_priority in ("normal", "high", "realtime"):
+            if sys.platform == "win32":
+                import ctypes
+
+                priority_map = {
+                    "normal": 0x00000020,   # NORMAL_PRIORITY_CLASS
+                    "high": 0x00000080,     # HIGH_PRIORITY_CLASS
+                    "realtime": 0x00000100, # REALTIME_PRIORITY_CLASS
+                }
+                priority_class = priority_map.get(process_priority)
+                if priority_class is not None:
+                    ctypes.windll.kernel32.SetPriorityClass(
+                        ctypes.windll.kernel32.GetCurrentProcess(),
+                        priority_class,
+                    )
+            else:
+                if process_priority == "high":
+                    os.nice(-10)
+                elif process_priority == "realtime":
+                    os.nice(-20)
+    except Exception:
+        pass
+    cpu_affinity_core = cfg.get("cpu_affinity_core", -1)
+    if cpu_affinity_core is not None:
+        if not _HAS_PSUTIL:
+            logger.warning("Affinite CPU demandee mais psutil indisponible.")
+        else:
+            try:
+                p = psutil.Process()
+                cpu_count = psutil.cpu_count()
+                if not cpu_count:
+                    raise RuntimeError("Nombre de coeurs indisponible.")
+                all_cpus = list(range(cpu_count))
+                try:
+                    core_index = int(cpu_affinity_core)
+                except Exception:
+                    raise ValueError("cpu_affinity_core invalide.")
+                if core_index == -1:
+                    if len(all_cpus) < 4:
+                        logger.info(
+                            "Affinite CPU ignoree (moins de 4 coeurs disponibles)."
+                        )
+                    else:
+                        dedicated_core = [all_cpus[-1]]
+                        p.cpu_affinity(dedicated_core)
+                        logger.info("Affinite CPU definie sur coeur %s", dedicated_core)
+                else:
+                    if core_index < 0 or core_index >= len(all_cpus):
+                        raise ValueError(
+                            f"cpu_affinity_core invalide (0..{len(all_cpus) - 1})."
+                        )
+                    dedicated_core = [core_index]
+                    p.cpu_affinity(dedicated_core)
+                    logger.info("Affinite CPU definie sur coeur %s", dedicated_core)
+            except Exception as exc:
+                logger.warning("Impossible de definir l'affinite CPU : %s", exc)
 
     device_type_mask = None
     sdk = CueSdkWrapper()
@@ -2674,10 +2740,9 @@ def run_bridge(args):
 
     watchdog_enabled = bool(cfg.get("icue_watchdog", True))
     watchdog_interval = float(cfg.get("icue_watchdog_interval", 5.0))
-    reconnect_timeout = float(cfg.get("icue_reconnect_timeout", 8.0))
     watchdog_fail_threshold = int(cfg.get("icue_watchdog_fail_threshold", 3))
     reconnect_cooldown = float(cfg.get("icue_reconnect_cooldown", 15.0))
-    watchdog_idle_only = bool(cfg.get("icue_watchdog_idle_only", True))
+    watchdog_idle_only = bool(cfg.get("icue_watchdog_idle_only", False))
     skip_reconnect_when_idle = bool(cfg.get("icue_skip_reconnect_when_idle", True))
     keepalive_enabled = bool(cfg.get("icue_keepalive", True))
     keepalive_interval = float(cfg.get("icue_keepalive_interval", 30.0))
@@ -2710,41 +2775,45 @@ def run_bridge(args):
             sdk.connect()
         except Exception:
             pass
-        ok, _ = wait_for_icue(sdk, device_type_mask, timeout_s=reconnect_timeout)
-        if ok:
-            try:
-                sdk.request_control()
-            except Exception:
-                pass
-            try:
-                mapper = build_mapper(cfg, sdk, device_type_mask, args)
-                groups = get_groups_for_mode(
-                    mode, cfg, mapper, sdk, default_protocol, args
-                )
-                close_runtime(sel, runtime_groups)
-                sel, runtime_groups = setup_runtime(groups)
-                logger.info("Reconnexion iCUE OK.")
-                print("Reconnexion iCUE OK.")
-                print("Groupes actifs:")
-                for gg in runtime_groups:
-                    print(
-                        f"- {gg['name']} -> {gg['udp_host']}:{gg['udp_port']} "
-                        f"(LEDs: {gg['led_count']}, protocole: {gg['protocol']})"
-                    )
-                    logger.info(
-                        "%s -> %s:%s (LEDs: %s, protocole: %s)",
-                        gg["name"],
-                        gg["udp_host"],
-                        gg["udp_port"],
-                        gg["led_count"],
-                        gg["protocol"],
-                    )
-            except Exception as exc:
-                logger.exception("Rebuild apres reconnexion echoue: %s", exc)
-                print(f"Rebuild apres reconnexion echoue: {exc}")
-        else:
-            logger.error("Reconnexion iCUE echouee.")
-            print("Reconnexion iCUE echouee.")
+        if not is_icue_connected(sdk, device_type_mask):
+            logger.warning("iCUE pas pret, reconnexion differee.")
+            return
+        try:
+            sdk.request_control()
+        except Exception:
+            pass
+        try:
+            new_mapper = build_mapper(cfg, sdk, device_type_mask, args)
+            new_groups = get_groups_for_mode(
+                mode, cfg, new_mapper, sdk, default_protocol, args
+            )
+            new_sel, new_runtime_groups = setup_runtime(new_groups)
+        except Exception as exc:
+            logger.exception("Rebuild apres reconnexion echoue: %s", exc)
+            print(f"Rebuild apres reconnexion echoue: {exc}")
+            return
+
+        close_runtime(sel, runtime_groups)
+        mapper = new_mapper
+        groups = new_groups
+        sel = new_sel
+        runtime_groups = new_runtime_groups
+        logger.info("Reconnexion iCUE OK.")
+        print("Reconnexion iCUE OK.")
+        print("Groupes actifs:")
+        for gg in runtime_groups:
+            print(
+                f"- {gg['name']} -> {gg['udp_host']}:{gg['udp_port']} "
+                f"(LEDs: {gg['led_count']}, protocole: {gg['protocol']})"
+            )
+            logger.info(
+                "%s -> %s:%s (LEDs: %s, protocole: %s)",
+                gg["name"],
+                gg["udp_host"],
+                gg["udp_port"],
+                gg["led_count"],
+                gg["protocol"],
+            )
     try:
         while True:
             events = sel.select(timeout=0.5)

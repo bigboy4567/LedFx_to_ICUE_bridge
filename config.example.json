@@ -34,6 +34,8 @@
   "icue_apply_fail_threshold": 6,
   "log_file": "ledfx_icue_bridge.log",
   "log_level": "info",
+  "process_priority": "high",
+  "cpu_affinity_core": -1,
   "keyboard_serpentine": false,
   "keyboard_serpentine_row_tolerance": null,
   "keyboard_serpentine_first_dir": "left",
