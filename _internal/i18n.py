@@ -17,6 +17,7 @@ _MESSAGES = {
         "update_available_title": "Mise a jour disponible",
         "update_available_body": "Nouvelle version disponible ({version}). Telecharger maintenant ?",
         "update_available_console": "Nouvelle version disponible: {version} -> {url}",
+        "toggle_language": "Langue",
     },
     "en": {
         "window_title": "Choose mode",
@@ -32,6 +33,7 @@ _MESSAGES = {
         "update_available_title": "Update available",
         "update_available_body": "A new version is available ({version}). Download now?",
         "update_available_console": "Update available: {version} -> {url}",
+        "toggle_language": "Language",
     },
 }
 
@@ -62,6 +64,11 @@ def _detect_lang():
 class I18n:
     def __init__(self, lang=None):
         self.lang = _normalize_lang(lang) or _detect_lang()
+
+    def set_lang(self, lang):
+        normalized = _normalize_lang(lang)
+        if normalized:
+            self.lang = normalized
 
     def t(self, key, **kwargs):
         msg = _MESSAGES.get(self.lang, _MESSAGES["fr"]).get(key, key)

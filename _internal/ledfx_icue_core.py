@@ -622,6 +622,26 @@ class _ModeWindowThread:
 
             root.protocol("WM_DELETE_WINDOW", on_close)
 
+            def toggle_language():
+                new_lang = "en" if self.i18n.lang == "fr" else "fr"
+                self.i18n.set_lang(new_lang)
+                apply_lang()
+
+            def apply_lang():
+                root.title(t("window_title"))
+                title_label.config(text=t("app_title"))
+                subtitle.config(
+                    text=t("choose_mode", default_mode=self.default_mode)
+                )
+                status_label.config(
+                    text=t("mode_selected", mode=self.last_mode)
+                )
+                btn_unique.config(text=t("mode_unique"))
+                btn_group.config(text=t("mode_group"))
+                btn_fusion.config(text=t("mode_fusion"))
+                btn_lang.config(text=t("toggle_language"))
+                btn_quit.config(text=t("quit"))
+
             def process_ui_queue():
                 try:
                     item = self._ui_queue.get_nowait()
@@ -715,8 +735,13 @@ class _ModeWindowThread:
             )
             status_label.grid(row=4, column=0, columnspan=3, pady=(10, 6))
 
+            btn_lang = ttk.Button(
+                frame, text=t("toggle_language"), style="App.TButton", command=toggle_language
+            )
+            btn_lang.grid(row=5, column=0, columnspan=2, pady=(4, 0), sticky="ew", padx=(0, 6))
+
             btn_quit = ttk.Button(frame, text=t("quit"), style="App.TButton", command=on_close)
-            btn_quit.grid(row=5, column=0, columnspan=3, pady=(4, 0))
+            btn_quit.grid(row=5, column=2, pady=(4, 0), sticky="ew")
 
             self.available = True
             self._ready.set()

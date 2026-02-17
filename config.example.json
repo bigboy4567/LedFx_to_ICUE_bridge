@@ -37,7 +37,7 @@
   "ui_language": "fr",
   "update_check_enabled": true,
   "update_check_interval_seconds": 30,
-  "update_repo": "OWNER/REPO",
+  "update_repo": "bigboy4567/LedFx_to_ICUE_bridge",
   "process_priority": "high",
   "cpu_affinity_core": -1,
   "keyboard_serpentine": false,
