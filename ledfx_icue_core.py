@@ -28,7 +28,7 @@ except ImportError:
     psutil = None
     _HAS_PSUTIL = False
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 _MODE_WINDOW = None
 _MODE_EXIT = "__exit__"
