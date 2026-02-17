@@ -13,7 +13,6 @@ import re
 import urllib.request
 import urllib.error
 import webbrowser
-import os
 import i18n
 try:
     import msvcrt
