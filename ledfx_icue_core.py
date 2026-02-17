@@ -14,7 +14,7 @@ import urllib.request
 import urllib.error
 import webbrowser
 import i18n
-import
+
 try:
     import msvcrt
     _HAS_MSVCRT = True
