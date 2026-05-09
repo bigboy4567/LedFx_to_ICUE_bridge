@@ -2077,6 +2077,21 @@ class LedMapper:
             )
             self._direct_async_thread.start()
 
+    def _merge_direct_async_device_ids(self, current, incoming):
+        merged = list(current or [])
+        for device_id in incoming or []:
+            exists = False
+            for known_id in merged:
+                try:
+                    if known_id == device_id:
+                        exists = True
+                        break
+                except Exception:
+                    pass
+            if not exists:
+                merged.append(device_id)
+        return merged
+
     def _enqueue_direct_async(self, device_ids):
         # DIAG-8: Time main-thread direct async enqueue path.
         enqueue_start = time.monotonic()
@@ -2094,16 +2109,22 @@ class LedMapper:
                     if elapsed > self.perf_threshold:
                         self._perf_warn(
                             "direct_async_busy",
-                            "[PERF] iCUE direct_async encore occupe %.3fs; la frame courante remplace la precedente",
+                            "[PERF] iCUE direct_async encore occupe %.3fs; les appareils en attente sont fusionnes",
                             elapsed,
                         )
                     if elapsed > self.direct_async_timeout:
                         return False, f"direct_async bloque depuis {elapsed:.1f}s"
-                    self._direct_async_device_ids = device_ids
+                    self._direct_async_device_ids = self._merge_direct_async_device_ids(
+                        self._direct_async_device_ids,
+                        device_ids,
+                    )
                     self._direct_async_event.set()
                     return True, None
                 # FIX-FREEZE-1: Main thread only publishes ids and signals the worker.
-                self._direct_async_device_ids = device_ids
+                self._direct_async_device_ids = self._merge_direct_async_device_ids(
+                    self._direct_async_device_ids,
+                    device_ids,
+                )
                 self._direct_async_event.set()
             return True, None
         finally:
@@ -4566,9 +4587,29 @@ def run_bridge(args):
                         proto_hex,
                     )
 
+                protocol = g["protocol"]
+                ddp_like = looks_like_ddp(data)
+                packet_count = 1
+                byte_count = len(data)
+                if not (
+                    protocol == "ddp"
+                    or (protocol in ("auto", "wled") and ddp_like)
+                ):
+                    while True:
+                        try:
+                            next_data, _ = sock.recvfrom(65535)
+                        except BlockingIOError:
+                            break
+                        except Exception:
+                            break
+                        data = next_data
+                        ddp_like = looks_like_ddp(data)
+                        packet_count += 1
+                        byte_count += len(data)
+
                 if debug_udp:
-                    g["pkt_count"] += 1
-                    g["byte_count"] += len(data)
+                    g["pkt_count"] += packet_count
+                    g["byte_count"] += byte_count
                 prev_packet_ts = g.get("last_packet_ts", 0.0)
                 if perf_debug and prev_packet_ts:
                     udp_gap = now - prev_packet_ts
@@ -4588,9 +4629,7 @@ def run_bridge(args):
                 g["last_packet_ts"] = now
                 g["idle_cleared"] = False
 
-                protocol = g["protocol"]
                 frame_buffer = g["frame_buffer"]
-                ddp_like = looks_like_ddp(data)
                 if protocol == "ddp" or (
                     protocol in ("auto", "wled") and ddp_like
                 ):
